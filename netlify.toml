@@ -1,0 +1,9 @@
+[build]
+  publish = "."
+  command = ""
+
+# SPA-style redirect: serve index.html for all paths
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
