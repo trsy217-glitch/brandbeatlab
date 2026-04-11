@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Brand Beat Lab — 소상공인 브랜딩 & 자동화</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%238B5CF6'/><text x='50' y='68' text-anchor='middle' fill='white' font-size='48' font-weight='bold'>BB</text></svg>"/>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.min.css" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#06060B;font-family:'Pretendard Variable','Pretendard',system-ui,-apple-system,sans-serif;color:#E8E4F0;-webkit-font-smoothing:antialiased}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+::selection{background:rgba(139,92,246,.3)}
+input::placeholder,textarea::placeholder{color:#6B6380}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(139,92,246,.2);border-radius:3px}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+/* ═══ CONFIG ═══ */
+const STORAGE_KEY = "bblab-v5";
+const ADMIN_PW = "bblab2026";
+
+/* ─── DESIGN TOKENS ─── */
+const C = {
+  bg:"#06060B",s1:"#0B0A14",s2:"#111020",cd:"#15132B",
+  ch:"#1E1A3A",bdr:"rgba(139,92,246,.12)",
+  accent:"#8B5CF6",accentBright:"#A78BFA",accentDim:"#6D28D9",
+  mint:"#34D399",amber:"#FBBF24",rose:"#FB7185",sky:"#38BDF8",
+  txt:"#E8E4F0",txtDim:"#9892A6",txtMute:"#6B6380",
+  surface:"#1A1735",white:"#FAF8FF",
+  glow:"rgba(139,92,246,.06)",border:"rgba(139,92,246,.1)",
+  gradPrimary:"linear-gradient(135deg,#7C3AED,#6D28D9)",
+  gradAccent:"linear-gradient(135deg,#8B5CF6,#A78BFA)",
+  gradMint:"linear-gradient(135deg,#34D399,#059669)",
+};
+
+const ar = v => Array.isArray(v) ? v.join(", ") : (v || "");
+
+/* ─── LOCAL STORAGE HELPER ─── */
+const storage = {
+  get: (key) => { try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch(e) { return null; } },
+  set: (key, val) => { try { localStorage.setItem(key, val); return true; } catch(e) { return false; } },
+};
+
+/* ─── AI CALL (Claude API) ─── */
+async function callAI(client) {
+  const prompt = `당신은 Brand Beat Lab의 AI 컨설턴트입니다. 소상공인 고객 데이터를 분석해서 브랜딩 랜딩페이지와 업무 자동화를 제안하세요.
+
+사업체: ${client.business} (${ar(client.industry)}) | 타겟: ${client.target}
+결과물: ${ar(client.deliverables)} | CTA: ${ar(client.cta)}
+필수내용: ${client.must_include} | 자료: ${client.has_assets}
+무드: ${ar(client.mood)} | 기능: ${ar(client.features)}
+예산: ${client.budget} | 일정: ${client.deadline} | 우선순위: ${ar(client.priority)}
+유지보수: ${client.maintenance} | 자동화 관심: ${ar(client.automation_needs)}
+추가: ${client.additional}
+
+JSON으로만 답변:
+{"summary":"니즈 2~3줄 요약","branding_direction":"브랜딩 방향 제안 (톤, 컬러, 핵심 메시지)","recommended_tier":"추천 티어+이유","estimated_price":"가격 범위(만원)","automation_suggestions":["자동화 제안 3~5개"],"key_points":["제안서 포인트 3~5개"],"landing_page_sections":["추천 랜딩페이지 섹션 구성"],"reply_draft":"카톡용 첫 답변 (200자 이내)"}`;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: prompt }] }),
+    });
+    const data = await res.json();
+    const text = data.content?.map(i => i.text || "").join("") || "";
+    return JSON.parse(text.replace(/```json|```/g, "").trim());
+  } catch(e) {
+    // Fallback demo data when API is not available
+    return {
+      summary: `${client.business}은(는) ${ar(client.industry)} 업종으로, ${client.target} 타겟층을 대상으로 합니다. ${ar(client.deliverables)}을 통해 브랜드 인지도와 운영 효율을 높이고자 합니다.`,
+      branding_direction: "업종 특성에 맞는 신뢰감 있는 톤과 따뜻한 색감을 추천합니다. 핵심 메시지는 '전문성'과 '편안함'을 동시에 전달하는 것이 효과적입니다.",
+      recommended_tier: "스탠다드 (TIER 2) — 멀티섹션 + 기본 자동화 포함이 가성비 최적",
+      estimated_price: "50~70만원",
+      automation_suggestions: ["예약 접수 자동화 (카카오톡 연동)", "신규 문의 자동 알림 시스템", "고객 리뷰 자동 수집 및 표시", "매출 일간 리포트 자동 발송"],
+      key_points: ["타겟 맞춤형 랜딩페이지로 전환율 극대화", "자동화 시스템으로 운영 시간 50% 절감", "모바일 최적화로 접근성 확보", "카카오톡 연동으로 고객 소통 자동화"],
+      landing_page_sections: ["히어로 섹션 (핵심 가치 전달)", "서비스/메뉴 소개", "고객 후기 섹션", "위치 및 연락처", "CTA (예약/문의 버튼)"],
+      reply_draft: `안녕하세요 ${client.name}님! Brand Beat Lab입니다. ${client.business} 프로젝트 문의 잘 받았습니다. 맞춤 제안서 준비 중이며, 24시간 내 연락드리겠습니다. 감사합니다!`
+    };
+  }
+}
+
+/* ═══ ATOMS ═══ */
+const Tag = ({ t }) => {
+  const m = { "필수":[C.rose,"rgba(251,113,133,.12)"], "핵심":[C.amber,"rgba(251,191,36,.12)"], "선택":[C.txtMute,"rgba(107,99,128,.12)"] };
+  const [c, b] = m[t] || m["선택"];
+  return <span style={{fontSize:10,padding:"2px 8px",borderRadius:4,fontWeight:700,background:b,color:c,letterSpacing:".04em"}}>{t}</span>;
+};
+
+const Chip = ({ label, on, onClick }) => (
+  <button type="button" onClick={onClick} style={{
+    padding:"10px 20px",borderRadius:100,fontSize:13,fontWeight:on?600:400,
+    background:on?"rgba(139,92,246,.15)":C.cd,border:`1.5px solid ${on?C.accent:C.border}`,
+    color:on?C.accentBright:C.txtDim,cursor:"pointer",transition:"all .25s cubic-bezier(.4,0,.2,1)",
+    fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:6,
+    transform:on?"scale(1.02)":"scale(1)",
+  }}>{on && <span style={{fontSize:11}}>✓</span>}{label}</button>
+);
+
+const RCard = ({ title, desc, on, onClick }) => (
+  <button type="button" onClick={onClick} style={{
+    padding:"18px 22px",borderRadius:14,textAlign:"left",width:"100%",fontFamily:"inherit",
+    background:on?"rgba(139,92,246,.08)":C.cd,border:`1.5px solid ${on?C.accent:C.border}`,
+    cursor:"pointer",transition:"all .25s",display:"flex",alignItems:"flex-start",gap:14,
+  }}>
+    <div style={{width:22,height:22,borderRadius:"50%",flexShrink:0,marginTop:1,border:`2px solid ${on?C.accent:C.border}`,background:on?C.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
+      {on && <div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/>}
+    </div>
+    <div>
+      <div style={{fontSize:14,color:C.txt,fontWeight:500,marginBottom:3}}>{title}</div>
+      {desc && <div style={{fontSize:12,color:C.txtMute,fontWeight:300,lineHeight:1.5}}>{desc}</div>}
+    </div>
+  </button>
+);
+
+const Inp = ({ label, tag, hint, ...p }) => (
+  <div style={{marginBottom:26}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+      <span style={{fontSize:14,fontWeight:500,color:C.txt}}>{label}</span>{tag&&<Tag t={tag}/>}
+    </div>
+    {hint&&<div style={{fontSize:12,color:C.txtMute,marginBottom:8,fontWeight:300}}>{hint}</div>}
+    <input {...p} style={{width:"100%",padding:"14px 18px",borderRadius:12,background:C.cd,border:`1.5px solid ${C.border}`,color:C.txt,fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box",transition:"border .2s"}} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/>
+  </div>
+);
+
+const Txa = ({ label, tag, hint, ...p }) => (
+  <div style={{marginBottom:26}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+      <span style={{fontSize:14,fontWeight:500,color:C.txt}}>{label}</span>{tag&&<Tag t={tag}/>}
+    </div>
+    {hint&&<div style={{fontSize:12,color:C.txtMute,marginBottom:8,fontWeight:300}}>{hint}</div>}
+    <textarea {...p} style={{width:"100%",padding:"14px 18px",borderRadius:12,minHeight:100,background:C.cd,border:`1.5px solid ${C.border}`,color:C.txt,fontSize:14,fontFamily:"inherit",outline:"none",resize:"vertical",lineHeight:1.7,boxSizing:"border-box",transition:"border .2s"}} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/>
+  </div>
+);
+
+const CG = ({ label, tag, hint, opts, multi, value, onChange }) => {
+  const toggle = v => multi ? onChange(value.includes(v)?value.filter(x=>x!==v):[...value,v]) : onChange(value.includes(v)?[]:[v]);
+  return (
+    <div style={{marginBottom:26}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}><span style={{fontSize:14,fontWeight:500,color:C.txt}}>{label}</span>{tag&&<Tag t={tag}/>}</div>
+      {hint&&<div style={{fontSize:12,color:C.txtMute,marginBottom:10,fontWeight:300}}>{hint}</div>}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>{opts.map(o=><Chip key={o} label={o} on={value.includes(o)} onClick={()=>toggle(o)}/>)}</div>
+    </div>
+  );
+};
+
+const RG = ({ label, tag, hint, opts, value, onChange }) => (
+  <div style={{marginBottom:26}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}><span style={{fontSize:14,fontWeight:500,color:C.txt}}>{label}</span>{tag&&<Tag t={tag}/>}</div>
+    {hint&&<div style={{fontSize:12,color:C.txtMute,marginBottom:10,fontWeight:300}}>{hint}</div>}
+    <div style={{display:"grid",gap:10}}>{opts.map(o=><RCard key={o.v} title={o.t} desc={o.d} on={value===o.v} onClick={()=>onChange(value===o.v?"":o.v)}/>)}</div>
+  </div>
+);
+
+const Btn = ({ children, v="primary", disabled, ...p }) => {
+  const styles = {
+    primary:{background:C.gradPrimary,color:"#fff",border:"none",boxShadow:"0 4px 24px rgba(139,92,246,.25)"},
+    mint:{background:C.gradMint,color:"#fff",border:"none"},
+    ghost:{background:C.cd,color:C.txtDim,border:`1.5px solid ${C.border}`},
+  };
+  return <button {...p} disabled={disabled} style={{padding:"16px 28px",borderRadius:12,cursor:disabled?"not-allowed":"pointer",fontSize:14,fontWeight:600,fontFamily:"inherit",transition:"all .25s",flex:1,opacity:disabled?0.5:1,...styles[v],...(p.style||{})}}>{children}</button>;
+};
+
+/* ═══ LANDING ═══ */
+function Landing({ onStart, onAdmin }) {
+  const [hoverCard, setHoverCard] = useState(null);
+  const [openFaq, setOpenFaq] = useState(null);
+
+  const services = [
+    {icon:"🎨",title:"브랜딩 랜딩페이지",desc:"업종 특화 디자인으로 고객 전환율을 극대화하는 맞춤형 웹페이지를 제작합니다.",tag:"웹디자인"},
+    {icon:"📋",title:"상세페이지 제작",desc:"스마트스토어, 쿠팡 등 마켓에 최적화된 상세페이지로 구매 전환율을 높입니다.",tag:"커머스"},
+    {icon:"⚡",title:"업무 자동화 시스템",desc:"예약·주문·알림·정산 등 반복 업무를 자동화하여 운영 효율을 극대화합니다.",tag:"자동화"},
+    {icon:"🤖",title:"AI 컨설팅 분석",desc:"AI가 업장을 분석하여 브랜딩 전략과 자동화 방안을 즉시 제안합니다.",tag:"AI"},
+  ];
+
+  const process = [
+    {num:"01",title:"설문 작성",desc:"5분이면 충분합니다. 사업에 대한 핵심 정보만 알려주세요.",color:C.accent},
+    {num:"02",title:"AI 분석",desc:"AI가 즉시 업장을 분석하고 브랜딩 전략과 자동화 방안을 도출합니다.",color:C.sky},
+    {num:"03",title:"맞춤 제안서",desc:"24시간 내 최적화된 솔루션이 담긴 맞춤 제안서를 보내드립니다.",color:C.mint},
+    {num:"04",title:"제작 & 납품",desc:"3~10일 이내 완성. 수정사항 반영 후 최종 납품됩니다.",color:C.amber},
+  ];
+
+  const faqs = [
+    {q:"제작 기간은 얼마나 걸리나요?",a:"프로젝트 범위에 따라 3~10일이 소요됩니다. 심플 원페이지는 3~5일, 멀티페이지 웹사이트는 7~10일, 웹앱·자동화 시스템은 2~3주 정도 소요됩니다."},
+    {q:"자동화 시스템이란 무엇인가요?",a:"예약 자동 접수, 카카오톡 자동 알림, 주문 정리, 정산 자동화 등 사장님이 매일 반복하는 업무를 시스템으로 자동 처리합니다. 초기 세팅 후 매달 관리비로 운영됩니다."},
+    {q:"수정은 몇 번 가능한가요?",a:"티어별로 1~3회 수정이 포함되어 있습니다. 추가 수정이 필요하면 건당 비용으로 진행 가능합니다."},
+    {q:"유지보수는 어떻게 하나요?",a:"월 정기 관리(월 5~15만원) 또는 건별 요청 중 선택하실 수 있습니다. 정기 관리에는 콘텐츠 업데이트, 모니터링, 소소한 수정이 포함됩니다."},
+  ];
+
+  return (
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+      {/* NAV */}
+      <nav style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 24px",maxWidth:1200,margin:"0 auto",width:"100%",position:"relative",zIndex:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:38,height:38,borderRadius:10,background:C.gradAccent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:"#fff",letterSpacing:"-0.02em"}}>BB</div>
+          <div>
+            <div style={{fontSize:15,color:C.white,fontWeight:700,letterSpacing:"-0.02em"}}>Brand Beat Lab</div>
+            <div style={{fontSize:9,color:C.txtMute,letterSpacing:".15em",textTransform:"uppercase"}}>소상공인 브랜딩 & 자동화</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={onAdmin} style={{padding:"8px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.txtDim,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>관리자</button>
+          <button onClick={onStart} style={{padding:"9px 20px",borderRadius:8,border:"none",background:C.gradPrimary,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>무료 상담 →</button>
+        </div>
+      </nav>
+
+      {/* HERO */}
+      <div style={{position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:-200,left:"50%",transform:"translateX(-50%)",width:800,height:800,borderRadius:"50%",background:"radial-gradient(circle, rgba(139,92,246,.08) 0%, transparent 70%)",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",top:100,right:-100,width:300,height:300,borderRadius:"50%",background:"radial-gradient(circle, rgba(52,211,153,.05) 0%, transparent 70%)",pointerEvents:"none"}}/>
+        <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",textAlign:"center",padding:"70px 24px 40px",maxWidth:900,margin:"0 auto",position:"relative"}}>
+          <div style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 24px",borderRadius:100,background:C.glow,border:`1px solid ${C.border}`,fontSize:11,letterSpacing:".12em",textTransform:"uppercase",color:C.accentBright,marginBottom:32}}>
+            <span style={{width:7,height:7,borderRadius:"50%",background:C.mint,boxShadow:`0 0 12px ${C.mint}`,animation:"pulse 2s infinite"}}/>AI-Powered Branding & Automation
+          </div>
+          <h1 style={{fontSize:"clamp(2rem,6.5vw,3.6rem)",fontWeight:800,lineHeight:1.12,color:C.white,marginBottom:22,letterSpacing:"-0.03em"}}>
+            소상공인의 브랜드에<br/>
+            <span style={{background:"linear-gradient(135deg,#8B5CF6,#A78BFA,#34D399)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>디지털 심장</span>을 심다
+          </h1>
+          <p style={{fontSize:"clamp(.95rem,2.2vw,1.15rem)",color:C.txtDim,fontWeight:400,maxWidth:560,lineHeight:1.85,marginBottom:44}}>
+            AI가 당신의 업장을 분석하고, 브랜딩 랜딩페이지부터<br/>
+            업무 자동화 시스템까지 한 번에 컨설팅합니다.
+          </p>
+          <div style={{display:"flex",gap:14,flexWrap:"wrap",justifyContent:"center",marginBottom:20}}>
+            <button onClick={onStart} style={{padding:"18px 44px",borderRadius:14,border:"none",cursor:"pointer",background:C.gradPrimary,color:"#fff",fontSize:16,fontWeight:700,fontFamily:"inherit",boxShadow:"0 8px 40px rgba(139,92,246,.3)",transition:"all .3s"}}>무료 AI 분석 시작하기</button>
+          </div>
+          <p style={{fontSize:12,color:C.txtMute}}>설문 5분 → AI 분석 → 24시간 내 제안서 발송</p>
+        </div>
+      </div>
+
+      {/* STATS */}
+      <div style={{display:"flex",justifyContent:"center",gap:"clamp(24px,6vw,60px)",padding:"50px 24px 60px",flexWrap:"wrap"}}>
+        {[["3~10일","평균 납기"],["AI 분석","자동 컨설팅"],["50%↓","운영비 절감"],["24h","제안서 발송"]].map(([n,l])=>(
+          <div key={l} style={{textAlign:"center"}}><div style={{fontSize:"clamp(1.4rem,3.5vw,1.8rem)",fontWeight:800,color:C.accentBright,letterSpacing:"-0.02em"}}>{n}</div><div style={{fontSize:12,color:C.txtMute,marginTop:5}}>{l}</div></div>
+        ))}
+      </div>
+
+      {/* SERVICES */}
+      <section style={{padding:"60px 24px 80px",maxWidth:1000,margin:"0 auto",width:"100%"}}>
+        <div style={{textAlign:"center",marginBottom:50}}>
+          <div style={{fontSize:11,letterSpacing:".2em",color:C.accent,fontWeight:700,marginBottom:10,textTransform:"uppercase"}}>Services</div>
+          <h2 style={{fontSize:"clamp(1.4rem,4vw,2rem)",color:C.white,fontWeight:700,letterSpacing:"-0.02em"}}>무엇을 도와드릴까요?</h2>
+          <p style={{fontSize:14,color:C.txtDim,marginTop:10,fontWeight:400}}>소상공인을 위한 올인원 디지털 솔루션</p>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:16}}>
+          {services.map((s,i)=>(
+            <div key={i} onMouseEnter={()=>setHoverCard(i)} onMouseLeave={()=>setHoverCard(null)} style={{
+              padding:28,borderRadius:18,background:hoverCard===i?C.surface:C.cd,
+              border:`1.5px solid ${hoverCard===i?C.accent:C.border}`,
+              transition:"all .3s cubic-bezier(.4,0,.2,1)",cursor:"default",
+              transform:hoverCard===i?"translateY(-4px)":"translateY(0)",
+            }}>
+              <div style={{fontSize:28,marginBottom:16}}>{s.icon}</div>
+              <div style={{display:"inline-block",padding:"3px 10px",borderRadius:6,background:"rgba(139,92,246,.1)",fontSize:10,color:C.accentBright,fontWeight:600,marginBottom:12,letterSpacing:".04em"}}>{s.tag}</div>
+              <h3 style={{fontSize:16,color:C.white,fontWeight:700,marginBottom:8}}>{s.title}</h3>
+              <p style={{fontSize:13,color:C.txtDim,lineHeight:1.7,fontWeight:400}}>{s.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* PROCESS */}
+      <section style={{padding:"60px 24px 80px",maxWidth:900,margin:"0 auto",width:"100%"}}>
+        <div style={{textAlign:"center",marginBottom:50}}>
+          <div style={{fontSize:11,letterSpacing:".2em",color:C.mint,fontWeight:700,marginBottom:10,textTransform:"uppercase"}}>Process</div>
+          <h2 style={{fontSize:"clamp(1.4rem,4vw,2rem)",color:C.white,fontWeight:700,letterSpacing:"-0.02em"}}>진행 프로세스</h2>
+          <p style={{fontSize:14,color:C.txtDim,marginTop:10}}>설문부터 납품까지, AI가 함께합니다</p>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:20}}>
+          {process.map((p,i)=>(
+            <div key={i} style={{padding:24,borderRadius:16,background:C.cd,border:`1.5px solid ${C.border}`,position:"relative"}}>
+              <div style={{fontSize:32,fontWeight:800,color:p.color,opacity:0.2,position:"absolute",top:16,right:20}}>{p.num}</div>
+              <div style={{width:40,height:40,borderRadius:10,background:`${p.color}15`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:16}}>
+                <div style={{width:10,height:10,borderRadius:"50%",background:p.color}}/>
+              </div>
+              <h3 style={{fontSize:15,color:C.white,fontWeight:700,marginBottom:8}}>{p.title}</h3>
+              <p style={{fontSize:13,color:C.txtDim,lineHeight:1.7,fontWeight:400}}>{p.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* PRICING */}
+      <section style={{padding:"60px 24px 80px",maxWidth:1000,margin:"0 auto",width:"100%"}}>
+        <div style={{textAlign:"center",marginBottom:50}}>
+          <div style={{fontSize:11,letterSpacing:".2em",color:C.amber,fontWeight:700,marginBottom:10,textTransform:"uppercase"}}>Pricing</div>
+          <h2 style={{fontSize:"clamp(1.4rem,4vw,2rem)",color:C.white,fontWeight:700,letterSpacing:"-0.02em"}}>맞춤 서비스 패키지</h2>
+          <p style={{fontSize:14,color:C.txtDim,marginTop:10}}>모든 패키지에 AI 분석이 포함됩니다</p>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16}}>
+          {[
+            {t:"STARTER",n:"스타터",p:"29만원~",c:C.txtDim,features:["원페이지 랜딩페이지","모바일 반응형","기본 섹션 5개","기본 자동화 1건","수정 1회 · 납기 5~7일"]},
+            {t:"STANDARD",n:"스탠다드",p:"59만원~",c:C.accentBright,pop:true,features:["멀티섹션 (최대 10)","모바일+태블릿 최적화","예약/문의 폼 연동","자동화 시스템 3건","기본 SEO · 수정 2회","카카오 알림 연동","납기 7~10일"]},
+            {t:"PREMIUM",n:"프리미엄",p:"99만원~",c:C.mint,features:["풀 사이트 멀티페이지","애니메이션/인터랙션","CMS/관리자 페이지","풀 자동화 시스템","카카오 알림·정산 자동화","수정 3회 · 납기 2~3주"]},
+          ].map(s=>(
+            <div key={s.t} style={{padding:30,borderRadius:18,background:C.cd,border:`1.5px solid ${s.pop?C.accent:C.border}`,position:"relative"}}>
+              {s.pop&&<div style={{position:"absolute",top:-11,left:"50%",transform:"translateX(-50%)",padding:"5px 18px",borderRadius:100,background:C.gradAccent,fontSize:10,fontWeight:700,color:"#fff",whiteSpace:"nowrap"}}>MOST POPULAR</div>}
+              <div style={{fontSize:10,letterSpacing:".15em",color:C.txtMute,marginBottom:6}}>{s.t}</div>
+              <div style={{fontSize:20,fontWeight:800,color:C.white,marginBottom:6,letterSpacing:"-0.02em"}}>{s.n}</div>
+              <div style={{fontSize:26,fontWeight:800,color:s.c,marginBottom:22,letterSpacing:"-0.02em"}}>{s.p}</div>
+              {s.features.map(f=><div key={f} style={{fontSize:13,color:C.txtDim,padding:"6px 0",display:"flex",gap:10,alignItems:"flex-start"}}><span style={{color:C.mint,flexShrink:0,marginTop:2}}>✓</span><span>{f}</span></div>)}
+              <button onClick={onStart} style={{width:"100%",marginTop:22,padding:14,borderRadius:12,border:"none",background:s.pop?C.gradPrimary:C.s2,color:s.pop?"#fff":C.accentBright,fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",boxShadow:s.pop?"0 4px 20px rgba(139,92,246,.2)":"none"}}>시작하기 →</button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section style={{padding:"60px 24px 80px",maxWidth:700,margin:"0 auto",width:"100%"}}>
+        <div style={{textAlign:"center",marginBottom:50}}>
+          <div style={{fontSize:11,letterSpacing:".2em",color:C.sky,fontWeight:700,marginBottom:10,textTransform:"uppercase"}}>FAQ</div>
+          <h2 style={{fontSize:"clamp(1.4rem,4vw,2rem)",color:C.white,fontWeight:700,letterSpacing:"-0.02em"}}>자주 묻는 질문</h2>
+        </div>
+        <div style={{display:"grid",gap:10}}>
+          {faqs.map((f,i)=>(
+            <div key={i} onClick={()=>setOpenFaq(openFaq===i?null:i)} style={{padding:"18px 22px",borderRadius:14,background:C.cd,border:`1.5px solid ${openFaq===i?C.border:"transparent"}`,cursor:"pointer",transition:"all .2s"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:14,color:C.txt,fontWeight:500}}>{f.q}</span>
+                <span style={{fontSize:18,color:C.txtMute,transform:openFaq===i?"rotate(45deg)":"rotate(0)",transition:"transform .2s",flexShrink:0,marginLeft:12}}>+</span>
+              </div>
+              {openFaq===i&&<p style={{fontSize:13,color:C.txtDim,lineHeight:1.8,marginTop:14,fontWeight:400}}>{f.a}</p>}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* BOTTOM CTA */}
+      <section style={{padding:"70px 24px",textAlign:"center",maxWidth:650,margin:"0 auto",borderTop:`1px solid ${C.border}`}}>
+        <h2 style={{fontSize:"clamp(1.3rem,4vw,1.8rem)",color:C.white,fontWeight:700,marginBottom:14,letterSpacing:"-0.02em"}}>지금 바로 시작하세요</h2>
+        <p style={{fontSize:14,color:C.txtDim,fontWeight:400,marginBottom:32}}>5분 설문 → AI 자동 분석 → 24시간 내 맞춤 제안서</p>
+        <button onClick={onStart} style={{padding:"18px 52px",borderRadius:14,border:"none",cursor:"pointer",background:C.gradPrimary,color:"#fff",fontSize:16,fontWeight:700,fontFamily:"inherit",boxShadow:"0 8px 40px rgba(139,92,246,.3)"}}>무료 AI 분석 시작하기 →</button>
+      </section>
+    </div>
+  );
+}
+
+/* ═══ FORM ═══ */
+const STEPS = ["기본정보","프로젝트","디자인·기능","자동화·예산"];
+const emptyForm = {name:"",business:"",industry:[],target:"",channels:[],phone:"",contact:"",deliverables:[],cta:[],must_include:"",has_assets:"",benchmark:"",mood:[],brand_color:"",features:[],language:[],tools:"",automation_needs:[],automation_detail:"",budget:"",deadline:"",priority:[],maintenance:"",additional:""};
+
+function Form({ onSubmit, onBack }) {
+  const [step, setStep] = useState(0);
+  const [f, setF] = useState({...emptyForm});
+  const s = (k,v) => setF(p=>({...p,[k]:v}));
+  const pct = ((step+1)/4)*100;
+
+  const canNext = () => {
+    if(step===0) return f.name && f.business && f.industry.length>0 && f.target && f.phone && f.contact;
+    if(step===1) return f.deliverables.length>0 && f.must_include;
+    return true;
+  };
+
+  const steps = [
+    ()=>(<>
+      <Inp label="대표님 성함" tag="필수" value={f.name} onChange={e=>s("name",e.target.value)} placeholder="예: 김대표"/>
+      <Inp label="사업체명" tag="필수" value={f.business} onChange={e=>s("business",e.target.value)} placeholder="예: 맛나식당"/>
+      <CG label="업종" tag="필수" hint="디자인 방향과 자동화 유형이 결정됩니다." multi={false} opts={["음식점/카페","쇼핑몰","서비스업","뷰티/건강","교육","B2B","기타"]} value={f.industry} onChange={v=>s("industry",v)}/>
+      <Inp label="주요 고객층" tag="필수" hint="타겟이 명확할수록 전환율 상승" value={f.target} onChange={e=>s("target",e.target.value)} placeholder="예: 30~40대 여성"/>
+      <CG label="현재 마케팅 채널" tag="핵심" multi={true} opts={["인스타그램","블로그","유튜브","카카오채널","오프라인","없음"]} value={f.channels} onChange={v=>s("channels",v)}/>
+      <Inp label="연락처" tag="필수" value={f.phone} onChange={e=>s("phone",e.target.value)} placeholder="010-0000-0000"/>
+      <Inp label="카톡 ID / 이메일" tag="필수" value={f.contact} onChange={e=>s("contact",e.target.value)} placeholder="제안서 받으실 연락처"/>
+    </>),
+    ()=>(<>
+      <CG label="원하는 결과물" tag="필수" hint="복수 선택 가능" multi={true} opts={["랜딩페이지","상세페이지","예약/주문 웹앱","쇼핑몰","업무 자동화","SNS 마케팅","기타"]} value={f.deliverables} onChange={v=>s("deliverables",v)}/>
+      <CG label="고객 행동 목적" tag="핵심" hint="페이지의 최종 목적" multi={true} opts={["전화 문의","카톡 문의","온라인 구매","예약하기","유입/인지도"]} value={f.cta} onChange={v=>s("cta",v)}/>
+      <Txa label="꼭 들어갈 내용" tag="필수" value={f.must_include} onChange={e=>s("must_include",e.target.value)} placeholder="예: 대표 메뉴 5개, 지도, 후기, 가격표"/>
+      <RG label="사진/영상 자료" tag="핵심" value={f.has_assets} onChange={v=>s("has_assets",v)} opts={[{v:"있음",t:"있음 — 직접 제공",d:"로고, 사진, 영상 등"},{v:"일부",t:"일부만 있음",d:"사진 부족 → 보완 필요"},{v:"없음",t:"없음 — AI 대체",d:"AI 이미지 활용 (별도 비용)"}]}/>
+      <Inp label="벤치마크 사이트" tag="선택" value={f.benchmark} onChange={e=>s("benchmark",e.target.value)} placeholder="이런 느낌으로 만들어주세요 (URL)"/>
+    </>),
+    ()=>(<>
+      <CG label="선호 분위기" tag="선택" multi={true} opts={["고급·어두운","밝고 따뜻한","심플·세련","귀엽고 캐주얼","모던·트렌디","잘 모르겠어요"]} value={f.mood} onChange={v=>s("mood",v)}/>
+      <Inp label="브랜드 컬러" tag="선택" value={f.brand_color} onChange={e=>s("brand_color",e.target.value)} placeholder="예: 네이비+골드, 또는 '알아서 해주세요'"/>
+      <CG label="필요한 기능" tag="핵심" multi={true} opts={["예약 폼","문의 폼","카카오톡 연동","결제 연동","위치 지도","리뷰 섹션","다국어","관리자 페이지","SNS 연동"]} value={f.features} onChange={v=>s("features",v)}/>
+      <CG label="다국어" tag="선택" multi={false} opts={["한국어만","한·영","한·중","한·중·영"]} value={f.language} onChange={v=>s("language",v)}/>
+      <Inp label="사용 중인 툴" tag="선택" hint="현재 사용 중인 플랫폼이 있다면 알려주세요" value={f.tools} onChange={e=>s("tools",e.target.value)} placeholder="예: 스마트스토어, 배민, 네이버예약"/>
+    </>),
+    ()=>(<>
+      <CG label="자동화가 필요한 업무" tag="핵심" hint="AI가 최적 자동화 시스템을 제안합니다" multi={true} opts={["예약 접수/관리","카카오 자동 알림","주문 정리","정산/매출 자동화","재고 관리","고객 리뷰 수집","SNS 자동 게시","없음/모르겠음"]} value={f.automation_needs} onChange={v=>s("automation_needs",v)}/>
+      <Txa label="자동화 상세 설명" tag="선택" hint="현재 가장 불편한 업무가 있다면 알려주세요" value={f.automation_detail} onChange={e=>s("automation_detail",e.target.value)} placeholder="예: 매일 카톡으로 예약 확인하는 게 번거로워요"/>
+      <RG label="예산 범위" tag="핵심" hint="현실적 제안을 위해 필요합니다" value={f.budget} onChange={v=>s("budget",v)} opts={[{v:"30만원 미만",t:"30만원 미만",d:"심플 원페이지"},{v:"30~60만원",t:"30~60만원",d:"스탠다드 + 기본 자동화"},{v:"60~100만원",t:"60~100만원",d:"프리미엄 + 풀 자동화"},{v:"100만원+",t:"100만원 이상",d:"웹앱·풀시스템"},{v:"상담 후",t:"상담 후 결정",d:"제안 먼저 확인"}]}/>
+      <Inp label="희망 완료일" tag="필수" value={f.deadline} onChange={e=>s("deadline",e.target.value)} placeholder="예: 5월 15일"/>
+      <CG label="우선순위" tag="선택" multi={false} opts={["⚡ 속도","✨ 품질","💰 비용","⚖️ 균형"]} value={f.priority} onChange={v=>s("priority",v)}/>
+      <RG label="유지보수" tag="선택" value={f.maintenance} onChange={v=>s("maintenance",v)} opts={[{v:"월 정기",t:"월 정기 관리",d:"월 수정 + 모니터링 + 자동화 관리"},{v:"건별",t:"필요할 때만",d:"건별 요청"},{v:"미정",t:"모르겠음",d:"나중에 결정"}]}/>
+      <Txa label="추가 요청사항" tag="선택" value={f.additional} onChange={e=>s("additional",e.target.value)} placeholder="기타 요청사항이 있으시면 자유롭게 작성해주세요"/>
+    </>),
+  ];
+
+  const submit = () => onSubmit({...f, submitted_at:new Date().toISOString(), id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), status:"new"});
+
+  const secInfo = [
+    {t:"SECTION A",n:"기본 비즈니스 정보",d:"사업에 대해 알려주세요. AI가 업장을 분석합니다."},
+    {t:"SECTION B",n:"프로젝트 요구사항",d:"원하는 결과물과 목적을 알려주세요."},
+    {t:"SECTION C",n:"디자인 & 기능",d:"브랜드 분위기와 필요한 기능을 선택하세요."},
+    {t:"SECTION D",n:"자동화 & 예산",d:"업무 자동화 니즈와 예산 범위를 알려주세요."},
+  ];
+
+  return (
+    <div style={{maxWidth:700,margin:"0 auto",padding:"0 20px"}}>
+      <button onClick={onBack} style={{background:"none",border:"none",color:C.accentBright,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"18px 0 0",display:"flex",alignItems:"center",gap:6}}>← 메인으로</button>
+      <div style={{position:"sticky",top:0,zIndex:100,padding:"16px 0",background:"rgba(6,6,11,.92)",backdropFilter:"blur(20px)",borderBottom:`1px solid ${C.border}`}}>
+        <div style={{height:4,borderRadius:4,background:"rgba(139,92,246,.08)",overflow:"hidden",marginBottom:12}}>
+          <div style={{height:"100%",borderRadius:4,width:`${pct}%`,background:C.gradAccent,transition:"width .5s cubic-bezier(.4,0,.2,1)"}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between"}}>{STEPS.map((st,i)=>(
+          <span key={st} style={{fontSize:11,fontWeight:i===step?600:400,color:i===step?C.accentBright:i<step?C.mint:C.txtMute,cursor:i<=step?"pointer":"default",transition:"color .2s"}} onClick={()=>i<=step&&setStep(i)}>{st}</span>
+        ))}</div>
+      </div>
+      <div style={{margin:"30px 0 28px"}}>
+        <div style={{fontSize:11,letterSpacing:".2em",color:C.accent,fontWeight:700,marginBottom:8}}>{secInfo[step].t}</div>
+        <h2 style={{fontSize:22,color:C.white,fontWeight:700,marginBottom:6,letterSpacing:"-0.02em"}}>{secInfo[step].n}</h2>
+        <p style={{fontSize:13,color:C.txtDim,fontWeight:400}}>{secInfo[step].d}</p>
+      </div>
+      <div key={step} style={{animation:"fadeUp .35s ease both"}}>{steps[step]()}</div>
+      <div style={{display:"flex",gap:12,margin:"40px 0 70px"}}>
+        {step>0&&<Btn v="ghost" onClick={()=>setStep(step-1)}>← 이전</Btn>}
+        {step<3
+          ?<Btn onClick={()=>setStep(step+1)} disabled={!canNext()}>다음 →</Btn>
+          :<Btn v="mint" onClick={submit} disabled={!f.deadline}>제출하기 ✓</Btn>}
+      </div>
+    </div>
+  );
+}
+
+/* ═══ ADMIN ═══ */
+function Admin({ clients, setClients, onBack }) {
+  const [sel, setSel] = useState(null);
+  const [ai, setAi] = useState({});
+  const [loading, setLoading] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [notes, setNotes] = useState({});
+  const [tab, setTab] = useState("overview");
+
+  const sC = {new:C.mint,contacted:C.amber,closed:C.accentBright,rejected:C.rose};
+  const sL = {new:"신규",contacted:"상담중",closed:"완료",rejected:"미진행"};
+
+  const save = async u => { setClients(u); storage.set(STORAGE_KEY, JSON.stringify(u)); };
+  const updSt = (id,st) => save(clients.map(c=>c.id===id?{...c,status:st}:c));
+  const del = id => { save(clients.filter(c=>c.id!==id)); setSel(null); };
+  const addNote = (id, note) => setNotes(p=>({...p,[id]:[...(p[id]||[]),{text:note,time:new Date().toISOString()}]}));
+
+  const analyze = async c => {
+    if(ai[c.id])return;
+    setLoading(c.id);
+    try { const result = await callAI(c); setAi(p=>({...p,[c.id]:result})); }
+    catch(e){ setAi(p=>({...p,[c.id]:{summary:"분석 실패",branding_direction:"-",recommended_tier:"-",estimated_price:"-",automation_suggestions:["수동 확인"],key_points:["수동 확인"],landing_page_sections:["-"],reply_draft:"자동 생성 실패"}})); }
+    setLoading(null);
+  };
+
+  const filtered = clients.filter(c => {
+    if(filter!=="all" && c.status!==filter) return false;
+    if(search && !c.business?.toLowerCase().includes(search.toLowerCase()) && !c.name?.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const stats = {
+    total:clients.length,
+    new:clients.filter(c=>c.status==="new").length,
+    contacted:clients.filter(c=>c.status==="contacted").length,
+    closed:clients.filter(c=>c.status==="closed").length,
+    rejected:clients.filter(c=>c.status==="rejected").length,
+  };
+
+  const c = sel ? clients.find(x=>x.id===sel) : null;
+  const a = sel ? ai[sel] : null;
+
+  // Detail view
+  if(c) {
+    return (
+      <div style={{maxWidth:800,margin:"0 auto",padding:"0 20px 70px",animation:"fadeUp .35s ease both"}}>
+        <button onClick={()=>setSel(null)} style={{background:"none",border:"none",color:C.accentBright,cursor:"pointer",fontSize:13,fontFamily:"inherit",marginBottom:24,padding:0,display:"flex",alignItems:"center",gap:6}}>← 목록으로</button>
+
+        {/* Header */}
+        <div style={{padding:28,borderRadius:18,background:C.cd,border:`1.5px solid ${C.border}`,marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:14}}>
+            <div>
+              <h2 style={{fontSize:22,color:C.white,fontWeight:800,marginBottom:6,letterSpacing:"-0.02em"}}>{c.business}</h2>
+              <p style={{fontSize:13,color:C.txtDim}}>{c.name} · {c.phone} · {c.contact}</p>
+              <p style={{fontSize:12,color:C.txtMute,marginTop:4}}>{new Date(c.submitted_at).toLocaleString("ko-KR")} 접수</p>
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {Object.entries(sL).map(([k,v])=>(
+                <button key={k} onClick={()=>updSt(c.id,k)} style={{padding:"7px 16px",borderRadius:100,fontSize:11,fontWeight:600,cursor:"pointer",background:c.status===k?`${sC[k]}18`:C.s1,border:`1.5px solid ${c.status===k?sC[k]:C.border}`,color:c.status===k?sC[k]:C.txtMute,fontFamily:"inherit",transition:"all .2s"}}>{v}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:16,background:C.s1,borderRadius:12,padding:4}}>
+          {[["overview","AI 분석"],["data","전체 데이터"],["notes","메모"]].map(([k,v])=>(
+            <button key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"10px 0",borderRadius:10,border:"none",background:tab===k?C.cd:"transparent",color:tab===k?C.accentBright:C.txtMute,fontSize:13,fontWeight:tab===k?600:400,cursor:"pointer",fontFamily:"inherit",transition:"all .2s"}}>{v}</button>
+          ))}
+        </div>
+
+        {/* AI Tab */}
+        {tab==="overview"&&(
+          <div style={{padding:28,borderRadius:18,background:`linear-gradient(135deg,rgba(139,92,246,.06),rgba(52,211,153,.02))`,border:`1.5px solid ${C.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+              <span style={{fontSize:20}}>🤖</span>
+              <h3 style={{fontSize:16,color:C.accentBright,fontWeight:700}}>AI 자동 분석 결과</h3>
+              {loading===c.id&&<span style={{fontSize:12,color:C.amber,animation:"pulse 1.5s infinite"}}>분석 중...</span>}
+            </div>
+            {a ? <>
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:10,color:C.txtMute,fontWeight:700,letterSpacing:".1em",marginBottom:6,textTransform:"uppercase"}}>니즈 요약</div>
+                <p style={{fontSize:14,color:C.txt,lineHeight:1.8}}>{a.summary}</p>
+              </div>
+              {a.branding_direction&&(
+                <div style={{marginBottom:20,padding:18,borderRadius:12,background:C.cd}}>
+                  <div style={{fontSize:10,color:C.txtMute,fontWeight:700,letterSpacing:".1em",marginBottom:6,textTransform:"uppercase"}}>브랜딩 방향</div>
+                  <p style={{fontSize:14,color:C.txt,lineHeight:1.8}}>{a.branding_direction}</p>
+                </div>
+              )}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+                <div style={{padding:16,borderRadius:12,background:C.cd}}>
+                  <div style={{fontSize:10,color:C.txtMute,marginBottom:4,fontWeight:600}}>추천 티어</div>
+                  <div style={{fontSize:14,color:C.mint,fontWeight:700}}>{a.recommended_tier}</div>
+                </div>
+                <div style={{padding:16,borderRadius:12,background:C.cd}}>
+                  <div style={{fontSize:10,color:C.txtMute,marginBottom:4,fontWeight:600}}>추정 가격</div>
+                  <div style={{fontSize:14,color:C.amber,fontWeight:700}}>{a.estimated_price}</div>
+                </div>
+              </div>
+              {a.automation_suggestions?.length>0&&(
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:10,color:C.txtMute,fontWeight:700,letterSpacing:".1em",marginBottom:8,textTransform:"uppercase"}}>자동화 제안</div>
+                  {a.automation_suggestions.map((s,i)=>(
+                    <div key={i} style={{fontSize:13,color:C.txt,padding:"6px 0",display:"flex",gap:10,alignItems:"flex-start"}}><span style={{color:C.sky,flexShrink:0}}>⚡</span><span>{s}</span></div>
+                  ))}
+                </div>
+              )}
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:10,color:C.txtMute,fontWeight:700,letterSpacing:".1em",marginBottom:8,textTransform:"uppercase"}}>제안서 포인트</div>
+                {a.key_points?.map((p,i)=>(
+                  <div key={i} style={{fontSize:13,color:C.txt,padding:"6px 0",display:"flex",gap:10,alignItems:"flex-start"}}><span style={{color:C.accentBright,flexShrink:0}}>•</span><span>{p}</span></div>
+                ))}
+              </div>
+              {a.landing_page_sections?.length>0&&(
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:10,color:C.txtMute,fontWeight:700,letterSpacing:".1em",marginBottom:8,textTransform:"uppercase"}}>추천 랜딩페이지 구성</div>
+                  {a.landing_page_sections.map((s,i)=>(
+                    <div key={i} style={{fontSize:13,color:C.txt,padding:"6px 0",display:"flex",gap:10,alignItems:"flex-start"}}><span style={{color:C.mint,flexShrink:0}}>{i+1}.</span><span>{s}</span></div>
+                  ))}
+                </div>
+              )}
+              <div>
+                <div style={{fontSize:10,color:C.txtMute,fontWeight:700,letterSpacing:".1em",marginBottom:8,textTransform:"uppercase"}}>자동 답변 (복사용)</div>
+                <div onClick={()=>{navigator.clipboard?.writeText(a.reply_draft);setCopied(true);setTimeout(()=>setCopied(false),2000);}} style={{padding:18,borderRadius:12,background:C.cd,border:`1.5px solid ${C.border}`,fontSize:14,color:C.txt,lineHeight:1.8,cursor:"pointer",transition:"border .2s"}}>
+                  {a.reply_draft}
+                  <div style={{fontSize:11,color:copied?C.mint:C.txtMute,marginTop:10,fontWeight:500}}>{copied?"✅ 클립보드에 복사됨":"📋 클릭하면 복사됩니다"}</div>
+                </div>
+              </div>
+            </> : loading===c.id ? (
+              <div style={{textAlign:"center",padding:"40px 0"}}>
+                <div style={{fontSize:28,animation:"pulse 1.5s infinite",marginBottom:12}}>⚡</div>
+                <p style={{fontSize:13,color:C.txtDim}}>AI 분석 중...</p>
+              </div>
+            ) : (
+              <button onClick={()=>analyze(c)} style={{padding:"14px 28px",borderRadius:12,border:"none",cursor:"pointer",background:C.gradPrimary,color:"#fff",fontSize:14,fontWeight:600,fontFamily:"inherit",boxShadow:"0 4px 20px rgba(139,92,246,.2)"}}>AI 분석 시작 →</button>
+            )}
+          </div>
+        )}
+
+        {/* Data Tab */}
+        {tab==="data"&&(
+          <div style={{padding:28,borderRadius:18,background:C.cd,border:`1.5px solid ${C.border}`}}>
+            <h3 style={{fontSize:15,color:C.accentBright,fontWeight:700,marginBottom:20}}>전체 설문 데이터</h3>
+            {[
+              ["사업체",c.business],["업종",c.industry],["타겟",c.target],["채널",c.channels],
+              ["결과물",c.deliverables],["CTA",c.cta],["필수내용",c.must_include],["자료",c.has_assets],
+              ["벤치마크",c.benchmark],["무드",c.mood],["컬러",c.brand_color],["기능",c.features],
+              ["다국어",c.language],["툴",c.tools],["자동화 니즈",c.automation_needs],
+              ["자동화 상세",c.automation_detail],["예산",c.budget],["일정",c.deadline],
+              ["우선순위",c.priority],["유지보수",c.maintenance],["추가",c.additional],
+            ].map(([l,v])=>{
+              const val=ar(v);
+              return val?<div key={l} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${C.border}`,fontSize:13,gap:16}}>
+                <span style={{color:C.txtMute,flexShrink:0,minWidth:90}}>{l}</span>
+                <span style={{color:C.txt,textAlign:"right",wordBreak:"break-word"}}>{val}</span>
+              </div>:null;
+            })}
+          </div>
+        )}
+
+        {/* Notes Tab */}
+        {tab==="notes"&&(
+          <div style={{padding:28,borderRadius:18,background:C.cd,border:`1.5px solid ${C.border}`}}>
+            <h3 style={{fontSize:15,color:C.accentBright,fontWeight:700,marginBottom:20}}>상담 메모</h3>
+            <NoteInput onAdd={(note)=>addNote(c.id,note)}/>
+            <div style={{marginTop:16,display:"grid",gap:10}}>
+              {(notes[c.id]||[]).slice().reverse().map((n,i)=>(
+                <div key={i} style={{padding:14,borderRadius:10,background:C.s1,border:`1px solid ${C.border}`}}>
+                  <p style={{fontSize:13,color:C.txt,lineHeight:1.7}}>{n.text}</p>
+                  <p style={{fontSize:11,color:C.txtMute,marginTop:6}}>{new Date(n.time).toLocaleString("ko-KR")}</p>
+                </div>
+              ))}
+              {(!notes[c.id]||notes[c.id].length===0)&&<p style={{fontSize:13,color:C.txtMute,textAlign:"center",padding:"20px 0"}}>아직 메모가 없습니다</p>}
+            </div>
+          </div>
+        )}
+
+        <button onClick={()=>{if(confirm("정말 삭제하시겠습니까?"))del(c.id);}} style={{marginTop:16,padding:"12px 24px",borderRadius:10,border:`1px solid ${C.rose}33`,background:"transparent",color:C.rose,cursor:"pointer",fontSize:13,fontFamily:"inherit"}}>삭제</button>
+      </div>
+    );
+  }
+
+  // List view
+  return (
+    <div style={{maxWidth:900,margin:"0 auto",padding:"0 20px 70px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"22px 0",borderBottom:`1px solid ${C.border}`,marginBottom:24,flexWrap:"wrap",gap:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:36,height:36,borderRadius:10,background:C.gradAccent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:"#fff"}}>BB</div>
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:C.white}}>관리자 대시보드</div>
+            <div style={{fontSize:11,color:C.txtMute}}>문의 관리 · AI 분석 · 고객 피드백</div>
+          </div>
+        </div>
+        <button onClick={onBack} style={{padding:"9px 20px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.accentBright,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>← 메인으로</button>
+      </div>
+
+      {/* Stats */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:10,marginBottom:24}}>
+        {[
+          {label:"전체",value:stats.total,color:C.accentBright},
+          {label:"신규",value:stats.new,color:C.mint},
+          {label:"상담중",value:stats.contacted,color:C.amber},
+          {label:"완료",value:stats.closed,color:C.accentBright},
+          {label:"미진행",value:stats.rejected,color:C.rose},
+        ].map(s=>(
+          <div key={s.label} style={{padding:"16px 14px",borderRadius:12,background:C.cd,border:`1.5px solid ${C.border}`,textAlign:"center"}}>
+            <div style={{fontSize:24,fontWeight:800,color:s.color,letterSpacing:"-0.02em"}}>{s.value}</div>
+            <div style={{fontSize:11,color:C.txtMute,marginTop:4}}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter & Search */}
+      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{display:"flex",gap:4,background:C.s1,borderRadius:10,padding:3}}>
+          {[["all","전체"],["new","신규"],["contacted","상담중"],["closed","완료"],["rejected","미진행"]].map(([k,v])=>(
+            <button key={k} onClick={()=>setFilter(k)} style={{padding:"7px 14px",borderRadius:8,border:"none",background:filter===k?C.cd:"transparent",color:filter===k?C.accentBright:C.txtMute,fontSize:12,fontWeight:filter===k?600:400,cursor:"pointer",fontFamily:"inherit",transition:"all .2s"}}>{v}</button>
+          ))}
+        </div>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="검색..." style={{padding:"9px 16px",borderRadius:10,background:C.cd,border:`1.5px solid ${C.border}`,color:C.txt,fontSize:13,outline:"none",fontFamily:"inherit",flex:1,minWidth:140,boxSizing:"border-box"}}/>
+      </div>
+
+      {/* Client List */}
+      {filtered.length===0?(
+        <div style={{textAlign:"center",padding:"80px 0",color:C.txtMute}}>
+          <p style={{fontSize:40,marginBottom:14}}>📭</p>
+          <p style={{fontSize:14}}>{clients.length===0?"접수된 문의가 없습니다":"검색 결과가 없습니다"}</p>
+        </div>
+      ):(
+        <div style={{display:"grid",gap:10}}>
+          {[...filtered].reverse().map(cl=>(
+            <div key={cl.id} onClick={()=>{setSel(cl.id);analyze(cl);setTab("overview");}} style={{
+              padding:"20px 24px",borderRadius:16,background:C.cd,border:`1.5px solid ${C.border}`,cursor:"pointer",transition:"all .25s",
+            }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <span style={{fontSize:16,fontWeight:700,color:C.txt}}>{cl.business||"미입력"}</span>
+                <span style={{fontSize:10,padding:"4px 12px",borderRadius:100,fontWeight:700,background:`${sC[cl.status]}15`,color:sC[cl.status],border:`1px solid ${sC[cl.status]}33`}}>{sL[cl.status]}</span>
+              </div>
+              <div style={{display:"flex",gap:16,fontSize:12,color:C.txtMute,flexWrap:"wrap",marginBottom:6}}>
+                <span>{cl.name}</span><span>{ar(cl.industry)}</span><span>{cl.budget}</span>
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {ar(cl.deliverables).split(", ").filter(Boolean).slice(0,3).map(d=>(
+                  <span key={d} style={{fontSize:10,padding:"2px 8px",borderRadius:4,background:"rgba(139,92,246,.08)",color:C.accentBright}}>{d}</span>
+                ))}
+                {ar(cl.automation_needs).split(", ").filter(Boolean).slice(0,2).map(d=>(
+                  <span key={d} style={{fontSize:10,padding:"2px 8px",borderRadius:4,background:"rgba(52,211,153,.08)",color:C.mint}}>{d}</span>
+                ))}
+              </div>
+              <div style={{fontSize:11,color:C.txtMute,marginTop:8}}>
+                {new Date(cl.submitted_at).toLocaleDateString("ko-KR")} 접수
+                {ai[cl.id]&&<span style={{color:C.mint,marginLeft:10}}>✓ AI분석 완료</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Note Input ─── */
+function NoteInput({ onAdd }) {
+  const [text, setText] = useState("");
+  return (
+    <div style={{display:"flex",gap:10}}>
+      <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&text.trim()){onAdd(text.trim());setText("");}}} placeholder="상담 메모 입력..." style={{flex:1,padding:"12px 16px",borderRadius:10,background:C.s1,border:`1.5px solid ${C.border}`,color:C.txt,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+      <button onClick={()=>{if(text.trim()){onAdd(text.trim());setText("");}}} style={{padding:"12px 20px",borderRadius:10,border:"none",background:C.gradPrimary,color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>추가</button>
+    </div>
+  );
+}
+
+/* ═══ APP ═══ */
+function App() {
+  const [pg, setPg] = useState("landing");
+  const [clients, setClients] = useState([]);
+  const [last, setLast] = useState(null);
+  const [pw, setPw] = useState("");
+  const [rdy, setRdy] = useState(false);
+
+  useEffect(()=>{
+    try {
+      const r = storage.get(STORAGE_KEY);
+      if(r?.value) setClients(JSON.parse(r.value));
+    } catch(e){}
+    setRdy(true);
+  },[]);
+
+  const submit = d => {
+    const u = [...clients, d];
+    setClients(u);
+    setLast(d);
+    setPg("success");
+    storage.set(STORAGE_KEY, JSON.stringify(u));
+  };
+
+  const tryPw = () => { if(pw===ADMIN_PW){setPg("admin");setPw("");}else alert("비밀번호가 일치하지 않습니다."); };
+
+  if(!rdy) return (
+    <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{width:44,height:44,borderRadius:12,background:C.gradAccent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:16,color:"#fff",margin:"0 auto 16px",animation:"pulse 1.5s infinite"}}>BB</div>
+        <span style={{color:C.txtDim,fontSize:14}}>로딩 중...</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{background:C.bg,minHeight:"100vh",color:C.txt,fontFamily:"'Pretendard Variable','Pretendard',system-ui,-apple-system,sans-serif"}}>
+      {pg==="landing"&&<Landing onStart={()=>setPg("form")} onAdmin={()=>setPg("pw")}/>}
+      {pg==="form"&&<Form onSubmit={submit} onBack={()=>setPg("landing")}/>}
+
+      {pg==="success"&&(
+        <div style={{textAlign:"center",padding:"90px 20px",maxWidth:520,margin:"0 auto",animation:"fadeUp .6s ease both"}}>
+          <div style={{width:76,height:76,borderRadius:"50%",background:"rgba(52,211,153,.1)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 28px",fontSize:32}}>✅</div>
+          <h2 style={{fontSize:26,color:C.white,fontWeight:800,marginBottom:12,letterSpacing:"-0.02em"}}>접수 완료!</h2>
+          <p style={{color:C.txtDim,fontWeight:400,marginBottom:8,lineHeight:1.7}}>AI가 업장을 분석 중입니다.<br/>24시간 내 맞춤 제안서를 보내드립니다.</p>
+          <p style={{fontSize:13,color:C.accentBright,marginBottom:40}}>급하시면 카톡으로 연락주세요</p>
+          <div style={{padding:28,borderRadius:18,background:C.cd,border:`1.5px solid ${C.border}`,textAlign:"left"}}>
+            <h4 style={{fontSize:14,color:C.accentBright,fontWeight:700,marginBottom:18}}>접수 내역 확인</h4>
+            {last&&[["name","성함"],["business","사업체명"],["industry","업종"],["deliverables","결과물"],["automation_needs","자동화 니즈"],["budget","예산"],["deadline","완료일"],["phone","연락처"],["contact","카톡/이메일"]].map(([k,l])=>{
+              const v=ar(last[k]);
+              return v?<div key={k} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
+                <span style={{color:C.txtMute}}>{l}</span>
+                <span style={{color:C.txt,fontWeight:500,textAlign:"right",maxWidth:"60%"}}>{v}</span>
+              </div>:null;
+            })}
+          </div>
+          <button onClick={()=>setPg("landing")} style={{marginTop:36,padding:"15px 36px",borderRadius:12,border:`1.5px solid ${C.border}`,background:"transparent",color:C.accentBright,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:500}}>← 메인으로</button>
+        </div>
+      )}
+
+      {pg==="admin"&&<Admin clients={clients} setClients={setClients} onBack={()=>setPg("landing")}/>}
+
+      {pg==="pw"&&(
+        <div style={{position:"fixed",top:0,left:0,width:"100%",height:"100%",background:"rgba(0,0,0,.8)",backdropFilter:"blur(8px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setPg("landing")}>
+          <div style={{background:C.cd,borderRadius:20,padding:36,width:"90%",maxWidth:360,border:`1.5px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
+            <h3 style={{fontSize:18,color:C.white,marginBottom:8,fontWeight:700}}>관리자 인증</h3>
+            <p style={{fontSize:12,color:C.txtMute,marginBottom:24}}>비밀번호를 입력하세요</p>
+            <input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&tryPw()} placeholder="비밀번호" autoFocus style={{width:"100%",padding:"14px 18px",borderRadius:12,marginBottom:16,background:C.s1,border:`1.5px solid ${C.border}`,color:C.txt,fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setPg("landing")} style={{flex:1,padding:14,borderRadius:12,border:`1.5px solid ${C.border}`,background:"transparent",color:C.txtDim,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>취소</button>
+              <button onClick={tryPw} style={{flex:1,padding:14,borderRadius:12,border:"none",background:C.gradPrimary,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700,fontFamily:"inherit"}}>확인</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer style={{textAlign:"center",padding:"36px 0 52px",borderTop:`1px solid ${C.border}`}}>
+        <p style={{fontSize:12,color:C.txtMute}}>Brand Beat Lab · 소상공인 브랜딩 & 자동화 플랫폼</p>
+        <p style={{fontSize:11,color:C.txtMute,marginTop:5,opacity:0.6}}>Powered by Ian Ko × AI</p>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
